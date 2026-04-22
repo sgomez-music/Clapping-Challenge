@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhythm Trainer</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React and ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel to compile the React code in the browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+        <style>
+            /* Respect macOS notch / safe area on full-screen MacBooks */
+            .safe-top { padding-top: calc(1.5rem + env(safe-area-inset-top, 0px)); }
+            @media (min-width: 768px) { .safe-top { padding-top: calc(2rem + env(safe-area-inset-top, 0px)); } }
+
+            /* Fallback for older WebKit implementations */
+            @supports (padding: constant(safe-area-inset-top)) {
+                .safe-top { padding-top: calc(1.5rem + constant(safe-area-inset-top)); }
+                @media (min-width: 768px) { .safe-top { padding-top: calc(2rem + constant(safe-area-inset-top)); } }
+            }
+        </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Standalone Icons ---
+        const Icon = ({ paths, size=24, className="", fill="none", stroke="currentColor" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{__html: paths}} />
+        );
+        const Play = (p) => <Icon {...p} fill={p.fill || "currentColor"} stroke={p.stroke || "none"} paths='<polygon points="5 3 19 12 5 21 5 3"></polygon>' />;
+        const Square = (p) => <Icon {...p} fill={p.fill || "none"} paths='<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>' />;
+        const RotateCcw = (p) => <Icon {...p} paths='<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />' />;
+        const Music = (p) => <Icon {...p} paths='<path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />' />;
+        const Activity = (p) => <Icon {...p} paths='<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />' />;
+        const ChevronUp = (p) => <Icon {...p} paths='<polyline points="18 15 12 9 6 15" />' />;
+        const ChevronDown = (p) => <Icon {...p} paths='<polyline points="6 9 12 15 18 9" />' />;
+        const Type = (p) => <Icon {...p} paths='<polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />' />;
+        const FileText = (p) => <Icon {...p} paths='<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" />' />;
+        const Sliders = (p) => <Icon {...p} paths='<line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" /><line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" /><line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" /><line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />' />;
+        const GridIcon = (p) => <Icon {...p} paths='<rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />' />;
+        const InfoIcon = (p) => <Icon {...p} paths='<circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />' />;
+        const Flame = (p) => <Icon {...p} paths='<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />' />;
+
+
+        // --- App Code ---
+        const RhythmTrainer = () => {
+          const TIME_SIGNATURES = ['2/4', '3/4', '4/4', '6/8'];
+
+          const MODES = {
+            QUARTER: {
+              id: 'quarter', name: 'Quarter Notes', subtext: '1 2 3 4', stepsPerBeat: 1, gridCols: 4,
+              labels: ['1', '2', '3', '4']
+            },
+            EIGHTH: {
+              id: 'eighth', name: 'Eighth Notes', subtext: '1 & 2 & 3 & 4 &', stepsPerBeat: 2, gridCols: 8,
+              labels: ['1', '&', '2', '&', '3', '&', '4', '&']
+            },
+            SIXTEENTH: {
+              id: 'sixteenth', name: 'Sixteenth Notes', subtext: '1 e & a ...', stepsPerBeat: 4, gridCols: 16,
+              labels: ['1', 'e', '&', 'a', '2', 'e', '&', 'a', '3', 'e', '&', 'a', '4', 'e', '&', 'a']
+            }
+          };
+
+          const LEVEL_DESCRIPTIONS = {
+            1: "Quarter Notes & Rests: Foundation of the beat.",
+            2: "Intro to Eighths: Mixing quarter notes with eighth note pairs.",
+            3: "Eighth Note Rests: Introducing basic off-beat rhythms.",
+            4: "Eighth Syncopation: Heavier focus on the '&' of the beat.",
+            5: "Intro to 16ths: Downbeat focused groups of 4 and mixed 8ths.",
+            6: "16th Variations: Gallops (1&a) and Dotted Rhythms.",
+            7: "Advanced Syncopation: Interior 16ths (e, a) and complex rests."
+          };
+
+          const SOUND_OPTIONS = [
+            { id: 'woodblock', name: 'Woodblock' },
+            { id: 'cowbell', name: 'Cowbell' },
+            { id: 'clap', name: 'Clap' },
+            { id: 'hihat', name: 'Hi-hat' },
+            { id: 'voice', name: 'Voice (Count)' },
+          ];
+
+          const [generationType, setGenerationType] = useState('level');
+          const [level, setLevel] = useState(1);
+          const [timeSignature, setTimeSignature] = useState('4/4');
+          const [currentMode, setCurrentMode] = useState(MODES.QUARTER);
+          const [pattern, setPattern] = useState([]);
+          
+          const [isMetronomeOn, setIsMetronomeOn] = useState(false); 
+          const [isPatternOn, setIsPatternOn] = useState(false);     
+          const [isChallengeModeOn, setIsChallengeModeOn] = useState(false);
+          const [tempo, setTempo] = useState(80);
+          const [selectedSound, setSelectedSound] = useState('clap');
+          const [metronomeSubdivision, setMetronomeSubdivision] = useState('quarter');
+          const [metronomeSound, setMetronomeSound] = useState('click');
+          const [isCountingIn, setIsCountingIn] = useState(false);
+          const [countInNumber, setCountInNumber] = useState(1);
+          
+          const [displayMode, setDisplayMode] = useState('counts');
+          const [currentStep, setCurrentStep] = useState(-1);
+          
+          const audioContextRef = useRef(null);
+          const noiseBufferRef = useRef(null);
+          const nextNoteTimeRef = useRef(0);
+          const timerIDRef = useRef(null);
+          const stepRef = useRef(0);
+          const measureCountRef = useRef(0); 
+          
+          const queuedPatternRef = useRef(null);
+          const queuedModeRef = useRef(null);
+          
+          const patternRef = useRef(pattern);
+          const modeRef = useRef(currentMode);
+          const soundRef = useRef(selectedSound);
+          const metronomeOnRef = useRef(isMetronomeOn);
+          const patternOnRef = useRef(isPatternOn);
+          const challengeOnRef = useRef(isChallengeModeOn);
+          const generationTypeRef = useRef(generationType);
+          const levelRef = useRef(level);
+          const metronomeSubdivisionRef = useRef(metronomeSubdivision);
+          const metroSoundRef = useRef(metronomeSound);
+          const tempoRef = useRef(tempo);
+          const timeSigRef = useRef(timeSignature);
+          const isCountingInRef = useRef(isCountingIn);
+          
+          const isTransportRunningRef = useRef(false);
+          const pendingPatternStartRef = useRef(false); 
+
+          useEffect(() => { patternRef.current = pattern; }, [pattern]);
+          useEffect(() => { modeRef.current = currentMode; }, [currentMode]);
+          useEffect(() => { soundRef.current = selectedSound; }, [selectedSound]);
+          useEffect(() => { metronomeOnRef.current = isMetronomeOn; }, [isMetronomeOn]);
+          useEffect(() => { patternOnRef.current = isPatternOn; }, [isPatternOn]);
+          useEffect(() => { challengeOnRef.current = isChallengeModeOn; }, [isChallengeModeOn]);
+          useEffect(() => { generationTypeRef.current = generationType; }, [generationType]);
+          useEffect(() => { levelRef.current = level; }, [level]);
+          useEffect(() => { metronomeSubdivisionRef.current = metronomeSubdivision; }, [metronomeSubdivision]);
+          useEffect(() => { metroSoundRef.current = metronomeSound; }, [metronomeSound]);
+          useEffect(() => { tempoRef.current = tempo; }, [tempo]);
+          useEffect(() => { timeSigRef.current = timeSignature; }, [timeSignature]);
+          useEffect(() => { isCountingInRef.current = isCountingIn; }, [isCountingIn]);
+          
+          useEffect(() => {
+            if (isPatternOn) {
+                if (isTransportRunningRef.current) pendingPatternStartRef.current = true;
+                else startTransport();
+            } else {
+                pendingPatternStartRef.current = false;
+                if (!isMetronomeOn) stopTransport();
+            }
+          }, [isPatternOn]);
+
+          useEffect(() => {
+              if (isMetronomeOn) {
+                  if (!isTransportRunningRef.current) startTransport();
+              } else {
+                  if (!isPatternOn) stopTransport();
+              }
+          }, [isMetronomeOn]);
+
+          useEffect(() => {
+              if (!isPatternOn && isChallengeModeOn) setIsChallengeModeOn(false);
+          }, [isPatternOn]);
+
+          useEffect(() => {
+            // Prevent jarring visual swaps mid-measure while playing the Challenge loop.
+            // The scheduler will automatically pick up the newly selected level/settings 
+            // and queue them perfectly for beat 1 of the next count-in.
+            if (challengeOnRef.current) return;
+
+            if (generationType === 'level') generateLevelPattern(level);
+            else generateFreePattern(currentMode);
+          }, [level, generationType, timeSignature]);
+
+          const getBeatConfig = (sig, mode) => {
+              if (sig === '6/8') {
+                  let steps = 1; 
+                  if (mode.id === 'eighth') steps = 3; 
+                  if (mode.id === 'sixteenth') steps = 6; 
+                  return { beatsPerMeasure: 2, stepsPerBeat: steps };
+              }
+              const [top, bottom] = sig.split('/').map(Number);
+              return { beatsPerMeasure: top, stepsPerBeat: mode.stepsPerBeat };
+          };
+
+          const handleGenerate = () => {
+              if (generationType === 'level') generateLevelPattern(level);
+              else generateFreePattern(currentMode);
+          };
+
+          const getUniqueFreePattern = (mode, sig, currentPattern) => {
+              const { beatsPerMeasure, stepsPerBeat } = getBeatConfig(sig, mode);
+              const totalSteps = beatsPerMeasure * stepsPerBeat;
+              let newPattern = [];
+              let attempts = 0;
+              const currentPatternStr = JSON.stringify(currentPattern);
+
+              do {
+                  newPattern = [];
+                  for (let i = 0; i < totalSteps; i++) {
+                      newPattern.push(Math.random() > 0.5);
+                  }
+                  if (!newPattern.includes(true)) newPattern[0] = true;
+                  attempts++;
+              } while (JSON.stringify(newPattern) === currentPatternStr && attempts < 20);
+              
+              return newPattern;
+          };
+
+          const generateFreePattern = (mode) => {
+              const newPattern = getUniqueFreePattern(mode, timeSignature, pattern);
+              setPattern(newPattern);
+              setCurrentMode(mode);
+          };
+
+          const getUniqueLevelPattern = (lvl, sig, currentPattern) => {
+            let newMode = MODES.QUARTER;
+            if (lvl >= 2) newMode = MODES.EIGHTH;
+            if (lvl >= 5) newMode = MODES.SIXTEENTH;
+            
+            const isCompound = sig === '6/8';
+            if (isCompound) {
+                if (lvl < 5) newMode = MODES.EIGHTH; 
+                else newMode = MODES.SIXTEENTH;
+            }
+
+            const { beatsPerMeasure } = getBeatConfig(sig, newMode);
+            let validBeatShapes = [];
+
+            if (isCompound) {
+                if (newMode.id === 'eighth') {
+                    if (lvl <= 2) validBeatShapes = [[1,0,0], [1,1,1]]; 
+                    else validBeatShapes = [[1,0,0], [1,1,1], [1,0,1], [1,1,0], [0,0,0]];
+                } else {
+                    validBeatShapes = [[1,0,0,0,0,0], [1,0,1,0,1,0]]; 
+                    if (lvl >= 6) validBeatShapes.push([1,1,1,1,1,1], [1,0,0,1,0,0]);
+                }
+            } else {
+                switch (lvl) {
+                    case 1: validBeatShapes = [[1], [0]]; break;
+                    case 2: validBeatShapes = [[1,0], [1,1], [0,0]]; break;
+                    case 3: validBeatShapes = [[1,0], [1,1], [0,0], [0,1]]; break;
+                    case 4: validBeatShapes = [[1,1], [0,1], [1,0]]; break;
+                    case 5: validBeatShapes = [[1,0,0,0], [1,0,1,0], [1,1,1,1]]; break;
+                    case 6: validBeatShapes = [[1,0,1,0], [1,1,1,1], [1,0,1,1], [1,1,1,0], [1,0,0,1]]; break;
+                    case 7: validBeatShapes = [[0,1,1,0], [0,0,1,1], [0,1,0,1], [1,1,0,1], [1,0,0,0], [0,0,0,0]]; break;
+                    default: validBeatShapes = [[1]];
+                }
+            }
+
+            let boolPattern = [];
+            let attempts = 0;
+            const currentPatternStr = JSON.stringify(currentPattern);
+
+            do {
+                const newPattern = [];
+                for (let b = 0; b < beatsPerMeasure; b++) {
+                    const shape = validBeatShapes[Math.floor(Math.random() * validBeatShapes.length)];
+                    newPattern.push(...shape);
+                }
+                if (lvl < 7 && !newPattern.includes(1) && !newPattern.includes(true)) newPattern[0] = 1;
+                boolPattern = newPattern.map(n => !!n);
+                attempts++;
+            } while (JSON.stringify(boolPattern) === currentPatternStr && attempts < 20);
+
+            return { mode: newMode, pattern: boolPattern };
+          };
+
+          const generateLevelPattern = (lvl) => {
+            const { mode, pattern: newPat } = getUniqueLevelPattern(lvl, timeSignature, pattern);
+            setCurrentMode(mode);
+            setPattern(newPat);
+          };
+
+          const toggleChallengeMode = () => {
+            if (isChallengeModeOn) {
+                setIsChallengeModeOn(false);
+                setIsPatternOn(false);
+            } else {
+                setIsChallengeModeOn(true);
+                setMetronomeSound('drumset');
+                setMetronomeSubdivision('eighth');
+                setIsMetronomeOn(true);
+                measureCountRef.current = 0; 
+                setCountInNumber(1);
+                setIsCountingIn(true);
+                isCountingInRef.current = true;
+                
+                if (!isPatternOn) setIsPatternOn(true);
+            }
+          };
+
+          const toggleStep = (index) => {
+              const newPattern = [...pattern];
+              newPattern[index] = !newPattern[index];
+              setPattern(newPattern);
+          };
+
+          const handleTempoChange = (val, strict = true) => {
+              if (!strict) { setTempo(val); return; }
+              let newTempo = Number(val);
+              if (isNaN(newTempo)) newTempo = 80;
+              if (newTempo < 40) newTempo = 40;
+              if (newTempo > 220) newTempo = 220;
+              setTempo(newTempo);
+          };
+
+          const handleTempoBlur = () => {
+              handleTempoChange(tempo, true);
+          };
+
+          const initAudioContext = () => {
+            if (!audioContextRef.current) {
+              audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+              const bufferSize = audioContextRef.current.sampleRate * 2;
+              const buffer = audioContextRef.current.createBuffer(1, bufferSize, audioContextRef.current.sampleRate);
+              const data = buffer.getChannelData(0);
+              for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+              noiseBufferRef.current = buffer;
+            }
+            if (audioContextRef.current.state === 'suspended') audioContextRef.current.resume();
+          };
+
+          const playSynthesizedSound = (time, instrument, label) => {
+            const ctx = audioContextRef.current;
+            if (!ctx) return;
+
+            if (instrument === 'voice') {
+                const msg = new SpeechSynthesisUtterance(label);
+                msg.rate = 1.3; msg.volume = 1;
+                if (label === '&') msg.text = 'And'; else if (label === 'a') msg.text = 'uh'; else msg.text = label;
+                window.speechSynthesis.speak(msg);
+                return;
+            }
+
+            const osc = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            switch (instrument) {
+                case 'woodblock':
+                    osc.frequency.value = 800; osc.type = 'sine';
+                    gainNode.gain.setValueAtTime(0.8, time);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+                    osc.start(time); osc.stop(time + 0.1);
+                    break;
+                case 'cowbell':
+                    osc.type = 'square'; osc.frequency.setValueAtTime(800, time);
+                    const osc2 = ctx.createOscillator(); osc2.type = 'square'; osc2.frequency.setValueAtTime(540, time);
+                    const gain2 = ctx.createGain(); osc2.connect(gain2); gain2.connect(ctx.destination);
+                    const filter = ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 800;
+                    osc.disconnect(); osc2.disconnect(); osc.connect(filter); osc2.connect(filter);
+                    filter.connect(gainNode);
+                    gainNode.gain.setValueAtTime(0.3, time); gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+                    osc.start(time); osc2.start(time); osc.stop(time + 0.3); osc2.stop(time + 0.3);
+                    break;
+                case 'clap':
+                    const clapSource = ctx.createBufferSource();
+                    clapSource.buffer = noiseBufferRef.current;
+                    const clapFilter = ctx.createBiquadFilter();
+                    clapFilter.type = 'bandpass';
+                    clapFilter.frequency.value = 1200; 
+                    clapFilter.Q.value = 0.5;
+                    
+                    clapSource.connect(clapFilter);
+                    clapFilter.connect(gainNode);
+                    
+                    gainNode.gain.setValueAtTime(1, time);
+                    gainNode.gain.exponentialRampToValueAtTime(0.1, time + 0.01);
+                    gainNode.gain.setValueAtTime(1, time + 0.012);
+                    gainNode.gain.exponentialRampToValueAtTime(0.1, time + 0.022);
+                    gainNode.gain.setValueAtTime(1, time + 0.025);
+                    gainNode.gain.exponentialRampToValueAtTime(0.1, time + 0.035);
+                    
+                    gainNode.gain.setValueAtTime(0.6, time + 0.035);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+                    
+                    clapSource.start(time);
+                    clapSource.stop(time + 0.25);
+                    break;
+                case 'hihat':
+                    const hatSource = ctx.createBufferSource(); hatSource.buffer = noiseBufferRef.current;
+                    const hatFilter = ctx.createBiquadFilter(); hatFilter.type = 'highpass'; hatFilter.frequency.value = 8000;
+                    hatSource.connect(hatFilter); hatFilter.connect(gainNode);
+                    gainNode.gain.setValueAtTime(0.3, time); gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+                    hatSource.start(time); hatSource.stop(time + 0.05);
+                    break;
+                case 'METRONOME_HIGH':
+                    osc.frequency.value = 1500; osc.type = 'triangle';
+                    gainNode.gain.setValueAtTime(0.3, time); gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+                    osc.start(time); osc.stop(time + 0.05);
+                    break;
+                case 'METRONOME_LOW':
+                    osc.frequency.value = 800; osc.type = 'triangle'; 
+                    gainNode.gain.setValueAtTime(0.1, time); gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+                    osc.start(time); osc.stop(time + 0.05);
+                    break;
+                case 'kick':
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(150, time);
+                    osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
+                    gainNode.gain.setValueAtTime(1, time); gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+                    osc.start(time); osc.stop(time + 0.1);
+                    break;
+                case 'snare':
+                    const snareSource = ctx.createBufferSource(); snareSource.buffer = noiseBufferRef.current;
+                    const snareFilt = ctx.createBiquadFilter(); snareFilt.type = 'bandpass'; snareFilt.frequency.value = 1500;
+                    snareSource.connect(snareFilt); const snareGain = ctx.createGain(); snareFilt.connect(snareGain);
+                    snareGain.connect(ctx.destination);
+                    snareGain.gain.setValueAtTime(0.8, time); snareGain.gain.exponentialRampToValueAtTime(0.01, time + 0.15);
+                    snareSource.start(time); snareSource.stop(time + 0.15);
+                    
+                    osc.type = 'triangle'; osc.frequency.setValueAtTime(250, time);
+                    gainNode.gain.setValueAtTime(0.4, time); gainNode.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+                    osc.start(time); osc.stop(time + 0.1);
+                    break;
+                default: break;
+            }
+          };
+
+          const startTransport = () => {
+            initAudioContext();
+            if (!isTransportRunningRef.current) {
+                isTransportRunningRef.current = true;
+                stepRef.current = 0;
+                measureCountRef.current = 0; 
+                setCurrentStep(-1);
+                setCountInNumber(1);
+                nextNoteTimeRef.current = audioContextRef.current.currentTime + 0.1;
+                pendingPatternStartRef.current = false;
+                setIsCountingIn(true);
+                isCountingInRef.current = true;
+                scheduler();
+            }
+          };
+
+          const stopTransport = () => {
+            isTransportRunningRef.current = false;
+            pendingPatternStartRef.current = false;
+            setIsCountingIn(false);
+            isCountingInRef.current = false;
+            setCurrentStep(-1);
+            if (timerIDRef.current) { window.clearTimeout(timerIDRef.current); timerIDRef.current = null; }
+            window.speechSynthesis.cancel();
+          };
+
+          const scheduler = () => {
+            if (!isTransportRunningRef.current) return;
+
+            const currentTempo = Number(tempoRef.current) || 80;
+            const safeTempo = Math.max(40, Math.min(220, currentTempo));
+
+            const sig = timeSigRef.current;
+            let beatsPerMeasure = 4;
+            let stepsPerBeat = modeRef.current.stepsPerBeat;
+
+            if (sig === '6/8') {
+                beatsPerMeasure = 2;
+                if (modeRef.current.id === 'eighth') stepsPerBeat = 3;
+                if (modeRef.current.id === 'sixteenth') stepsPerBeat = 6;
+                if (modeRef.current.id === 'quarter') stepsPerBeat = 1;
+            } else {
+                beatsPerMeasure = parseInt(sig.split('/')[0]);
+            }
+            
+            const secondsPerBeat = 60.0 / safeTempo;
+            let secondsPerStep = secondsPerBeat / stepsPerBeat;
+            
+            const lookahead = 25.0; 
+            const scheduleAheadTime = 0.1;
+
+            while (nextNoteTimeRef.current < audioContextRef.current.currentTime + scheduleAheadTime) {
+              // Pass the CURRENT value of the ref to the schedule step so we know if *this specific step* is during a count in
+              scheduleStep(stepRef.current, nextNoteTimeRef.current, isCountingInRef.current);
+              nextNoteTimeRef.current += secondsPerStep;
+              
+              stepRef.current++;
+              const maxSteps = beatsPerMeasure * stepsPerBeat;
+              
+              if (stepRef.current >= maxSteps) {
+                stepRef.current = 0;
+                measureCountRef.current++;
+                
+                if (challengeOnRef.current) {
+                    const cycleMeasure = measureCountRef.current % 3;
+                    
+                    if (cycleMeasure === 0) {
+                        if (generationTypeRef.current === 'level') {
+                            const { mode: newMod, pattern: newPat } = getUniqueLevelPattern(levelRef.current, timeSigRef.current, patternRef.current);
+                            patternRef.current = newPat;
+                            modeRef.current = newMod;
+                            queuedPatternRef.current = newPat;
+                            queuedModeRef.current = newMod;
+                        } else {
+                            const newPat = getUniqueFreePattern(modeRef.current, timeSigRef.current, patternRef.current);
+                            patternRef.current = newPat;
+                            queuedPatternRef.current = newPat;
+                            queuedModeRef.current = modeRef.current;
+                        }
+                        
+                        if (sig === '6/8') {
+                            if (modeRef.current.id === 'eighth') stepsPerBeat = 3;
+                            if (modeRef.current.id === 'sixteenth') stepsPerBeat = 6;
+                            if (modeRef.current.id === 'quarter') stepsPerBeat = 1;
+                        } else {
+                            stepsPerBeat = modeRef.current.stepsPerBeat;
+                        }
+                        secondsPerStep = secondsPerBeat / stepsPerBeat;
+
+                        // Only update the ref immediately for the scheduler's next loop logic
+                        isCountingInRef.current = true;
+                    } else if (cycleMeasure === 1) {
+                        isCountingInRef.current = false;
+                    }
+                } else {
+                    if (isCountingInRef.current) {
+                        isCountingInRef.current = false;
+                    }
+                }
+              }
+            }
+            timerIDRef.current = window.setTimeout(scheduler, lookahead);
+          };
+
+          const scheduleStep = (stepIndex, time, isStepCountingIn) => {
+            const mode = modeRef.current;
+            const sig = timeSigRef.current;
+            
+            let beatsPerMeasure = 4;
+            let stepsPerBeat = mode.stepsPerBeat;
+            if (sig === '6/8') {
+                beatsPerMeasure = 2;
+                if (mode.id === 'eighth') stepsPerBeat = 3;
+                if (mode.id === 'sixteenth') stepsPerBeat = 6;
+                if (mode.id === 'quarter') stepsPerBeat = 1;
+            } else {
+                beatsPerMeasure = parseInt(sig.split('/')[0]);
+            }
+            
+            const stepInBeat = stepIndex % stepsPerBeat;
+            const isDownbeat = stepInBeat === 0;
+
+            if (isDownbeat) {
+                if (stepIndex === 0 && pendingPatternStartRef.current) pendingPatternStartRef.current = false;
+            }
+
+            const isPatternActive = patternOnRef.current && !pendingPatternStartRef.current && !isStepCountingIn;
+
+            if (isPatternActive) {
+                if (patternRef.current[stepIndex]) {
+                    let labelText = '?';
+                    if (isDownbeat) {
+                        const beatNum = Math.floor(stepIndex / stepsPerBeat) + 1;
+                        labelText = beatNum.toString();
+                    } else {
+                        labelText = 'and'; 
+                    }
+                    playSynthesizedSound(time, soundRef.current, labelText);
+                }
+            }
+
+            const effectiveMetroOn = metronomeOnRef.current || isStepCountingIn;
+
+            if (effectiveMetroOn && metroSoundRef.current === 'drumset') {
+                const beatInMeasure = Math.floor(stepIndex / stepsPerBeat) % beatsPerMeasure;
+                if (isDownbeat) {
+                    if (sig === '6/8') {
+                        if (beatInMeasure === 0) playSynthesizedSound(time, 'kick');
+                        else playSynthesizedSound(time, 'snare');
+                    } else {
+                        if (beatInMeasure === 0 || beatInMeasure === 2) playSynthesizedSound(time, 'kick');
+                        else playSynthesizedSound(time, 'snare');
+                    }
+                }
+
+                const isEighthSub = metronomeSubdivisionRef.current === 'eighth';
+                if (isEighthSub) {
+                     if (stepsPerBeat === 1 && sig !== '6/8' && isDownbeat) {
+                         playSynthesizedSound(time, 'hihat');
+                         playSynthesizedSound(time + (60.0 / tempoRef.current) / 2, 'hihat');
+                     } else if (stepsPerBeat > 1) {
+                         let is8th = sig === '6/8' ? (stepIndex % (stepsPerBeat / 3) === 0) : (stepIndex % (stepsPerBeat / 2) === 0);
+                         if (is8th) playSynthesizedSound(time, 'hihat');
+                     }
+                } else {
+                     if (isDownbeat) playSynthesizedSound(time, 'hihat');
+                }
+            } 
+            else {
+                let playStandardClick = false;
+                let clickType = 'METRONOME_LOW';
+
+                if (effectiveMetroOn) {
+                    if (isDownbeat) {
+                        playStandardClick = true; clickType = 'METRONOME_HIGH';
+                    } else if (metronomeSubdivisionRef.current === 'eighth') {
+                        if (sig === '6/8') {
+                           if (mode.id === 'eighth') playStandardClick = true;
+                        } else {
+                            if (mode.id === 'eighth') playStandardClick = true;
+                            if (mode.id === 'sixteenth' && stepInBeat === 2) playStandardClick = true;
+                        }
+                    }
+                } else if (isPatternActive && stepIndex === 0) {
+                    playStandardClick = true; clickType = 'METRONOME_HIGH';
+                }
+                
+                if (playStandardClick) playSynthesizedSound(time, clickType);
+            }
+
+            const timeUntilDraw = (time - audioContextRef.current.currentTime) * 1000;
+            
+            // Capture any queued visual updates so they apply exactly on the downbeat
+            const patternToApply = (stepIndex === 0 && queuedPatternRef.current) ? queuedPatternRef.current : null;
+            const modeToApply = (stepIndex === 0 && queuedModeRef.current) ? queuedModeRef.current : null;
+            
+            // Clear the queue to prevent it from applying multiple times
+            if (stepIndex === 0 && queuedPatternRef.current) {
+                queuedPatternRef.current = null;
+                queuedModeRef.current = null;
+            }
+
+            setTimeout(() => { 
+                if (patternToApply) {
+                    setPattern(patternToApply);
+                    setCurrentMode(modeToApply);
+                }
+                setCurrentStep(stepIndex); 
+                setIsCountingIn(isStepCountingIn); 
+                if (isStepCountingIn && isDownbeat) {
+                    setCountInNumber(Math.floor(stepIndex / stepsPerBeat) + 1);
+                }
+            }, Math.max(0, timeUntilDraw));
+          };
+
+          const Notes = {
+              NoteHead: ({cx=50, cy=30}) => <ellipse cx={cx} cy={cy} rx="6" ry="5" transform={`rotate(-15 ${cx} ${cy})`} />,
+              Stem: ({x=55, y1=30, y2=5}) => <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth="1.5" />,
+              Dot: ({cx, cy=30}) => <circle cx={cx} cy={cy} r="2.5" fill="currentColor" />,
+              FlagEighth: ({x=55, y=5}) => <path d={`M${x} ${y} Q${x+10} ${y+10} ${x} ${y+20}`} fill="none" strokeWidth="2" />,
+              FlagSixteenth: ({x=55, y=5}) => <path d={`M${x} ${y} Q${x+10} ${y+10} ${x} ${y+20} M${x} ${y+7} Q${x+10} ${y+17} ${x} ${y+27}`} fill="none" strokeWidth="2" />,
+              Beam: ({x1, x2, y=5}) => <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth="4" strokeLinecap="butt" />,
+              BeamDouble: ({x1, x2, y=5}) => (
+                  <g>
+                      <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth="3" strokeLinecap="butt" />
+                      <line x1={x1} y1={y+7} x2={x2} y2={y+7} strokeWidth="3" strokeLinecap="butt" />
+                  </g>
+              ),
+              RestQuarter: ({x=30}) => <path d={`M${x} 10 L${x+8} 18 L${x} 24 L${x+8} 34 L${x+4} 42`} fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />,
+              RestEighth: ({x=0, y=0}) => <path d="M14 22 A 4 4 0 1 0 18 16 L 14 30" fill="currentColor" stroke="none" transform={`translate(${x}, ${y})`} />,
+              RestSixteenth: ({x=0, y=0}) => <g transform={`translate(${x}, ${y})`}>
+                  <path d="M14 18 A 4 4 0 1 0 18 12 L 14 26" fill="currentColor" />
+                  <path d="M14 30 A 4 4 0 1 0 18 24 L 14 38" fill="currentColor" />
+              </g>
+          };
+
+          const renderNotationLine = () => {
+            const { beatsPerMeasure, stepsPerBeat } = getBeatConfig(timeSignature, currentMode);
+            
+            let beats = [];
+            for (let b = 0; b < beatsPerMeasure; b++) {
+                const startIndex = b * stepsPerBeat;
+                const beatNotes = [];
+                for (let s = 0; s < stepsPerBeat; s++) beatNotes.push(pattern[startIndex + s]);
+                beats.push({ id: b, notes: beatNotes, startIndex });
+            }
+
+            const beatVisuals = beats.map((beat, bIndex) => {
+                const nextBeat = beats[bIndex + 1];
+                const prevBeat = beats[bIndex - 1];
+                let isDottedQuarter = false;
+                let isCoveredByPrev = false;
+
+                if (timeSignature !== '6/8' && stepsPerBeat === 4) {
+                    if (bIndex > 0 && prevBeat) {
+                        const prevIsQuarter = prevBeat.notes[0] && !prevBeat.notes[1] && !prevBeat.notes[2] && !prevBeat.notes[3];
+                        const currentIs8thRestStart = !beat.notes[0] && !beat.notes[1];
+                        const currentHasNoteOnAnd = beat.notes[2];
+                        if (prevIsQuarter && currentIs8thRestStart && currentHasNoteOnAnd) isCoveredByPrev = true;
+                    }
+                    if (bIndex < beatsPerMeasure - 1 && nextBeat) {
+                        const isCurrentQuarter = beat.notes[0] && !beat.notes[1] && !beat.notes[2] && !beat.notes[3];
+                        const nextIs8thRestStart = !nextBeat.notes[0] && !nextBeat.notes[1];
+                        const nextHasNoteOnAnd = nextBeat.notes[2];
+                        if (isCurrentQuarter && nextIs8thRestStart && nextHasNoteOnAnd) isDottedQuarter = true;
+                    }
+                } 
+                else if (timeSignature !== '6/8' && stepsPerBeat === 2) {
+                     if (bIndex > 0 && prevBeat) {
+                         const prevIsQuarter = prevBeat.notes[0] && !prevBeat.notes[1];
+                         const currentHasNoteOnAnd = beat.notes[1]; 
+                         const currentStartEmpty = !beat.notes[0];
+                         if (prevIsQuarter && currentStartEmpty && currentHasNoteOnAnd) isCoveredByPrev = true;
+                     }
+                     if (bIndex < beatsPerMeasure - 1 && nextBeat) {
+                         const isCurrentQuarter = beat.notes[0] && !beat.notes[1];
+                         const nextHasNoteOnAnd = nextBeat.notes[1];
+                         const nextStartEmpty = !nextBeat.notes[0];
+                         if (isCurrentQuarter && nextStartEmpty && nextHasNoteOnAnd) isDottedQuarter = true;
+                     }
+                }
+
+                if (isDottedQuarter) return { type: 'dotted_quarter', notes: beat.notes };
+                if (isCoveredByPrev) return { type: 'partial_tail', notes: beat.notes };
+                if (timeSignature === '6/8') return { type: 'compound', notes: beat.notes };
+                
+                return { type: 'standard', notes: beat.notes };
+            });
+
+            return (
+                <div className="flex items-center w-full px-4 overflow-hidden select-none relative h-48">
+                    <div className="flex flex-col items-center mr-6 border-r-4 border-slate-800 h-32 justify-center pr-4 relative z-10">
+                        <div className="font-bold text-4xl font-serif leading-none">{timeSignature.split('/')[0]}</div>
+                        <div className="font-bold text-4xl font-serif leading-none">{timeSignature.split('/')[1]}</div>
+                    </div>
+                    <div className="flex-1 flex justify-between relative h-full">
+                        <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-300 -z-0 mt-[-1px]"></div>
+                        {beatVisuals.map((visual, bIndex) => {
+                            const beat = beats[bIndex];
+                            const svgWidth = 100;
+                            const shapes = [];
+                            const beamLayer = [];
+                            
+                            if (visual.type === 'compound') {
+                                 const notes = beat.notes;
+                                 const slots = [16, 50, 83]; 
+                                 const activeIndices = notes.map((n, i) => n ? i : -1).filter(i => i !== -1);
+                                 
+                                 notes.forEach((active, i) => {
+                                     const cx = slots[i];
+                                     if (active) shapes.push(<g key={i} className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={cx} /><Notes.Stem x={cx+5} /></g>);
+                                     else shapes.push(<g key={i} className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestEighth x={cx-15} /></g>);
+                                 });
+                                 
+                                 if (activeIndices.length > 1) {
+                                     const first = activeIndices[0];
+                                     const last = activeIndices[activeIndices.length-1];
+                                     beamLayer.push(<Notes.Beam key="b" x1={slots[first]+5} x2={slots[last]+5} />);
+                                 } else if (activeIndices.length === 1) {
+                                     beamLayer.push(<Notes.FlagEighth key="f" x={slots[activeIndices[0]]+5} />);
+                                 }
+                            }
+                            else if (visual.type === 'dotted_quarter') {
+                                shapes.push(
+                                    <g key="dq" className="text-red-500 fill-red-500 stroke-red-500">
+                                        <Notes.NoteHead cx={12.5} />
+                                        <Notes.Stem x={17.5} />
+                                        <Notes.Dot cx={28} />
+                                    </g>
+                                );
+                            } 
+                            else {
+                                const p = beat.notes.map(n => n ? '1' : '0').join('');
+                                const slots = [12.5, 37.5, 62.5, 87.5];
+                                const s = (idx) => slots[idx] + 5; 
+                                const startIndex = visual.type === 'partial_tail' ? (stepsPerBeat === 4 ? 2 : 1) : 0;
+
+                                if (stepsPerBeat === 4) {
+                                    const renderItem = (idx, type) => {
+                                        if (idx < startIndex) return;
+                                        if (type === '16') shapes.push(<g key={idx} className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={slots[idx]} /><Notes.Stem x={s(idx)} /></g>);
+                                        else if (type === '8') shapes.push(<g key={idx} className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={slots[idx]} /><Notes.Stem x={s(idx)} /></g>);
+                                        else if (type === 'd8') shapes.push(<g key={idx} className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={slots[idx]} /><Notes.Stem x={s(idx)} /><Notes.Dot cx={slots[idx]+16} /></g>);
+                                        else if (type === 'q') shapes.push(<g key={idx} className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={slots[idx]} /><Notes.Stem x={s(idx)} /></g>);
+                                        else if (type === 'r16') shapes.push(<g key={idx} className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestSixteenth x={slots[idx]-15} /></g>);
+                                        else if (type === 'r8') shapes.push(<g key={idx} className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestEighth x={slots[idx]-5} /></g>);
+                                        else if (type === 'rq') shapes.push(<g key={idx} className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestQuarter x={slots[idx]+10} /></g>);
+                                    };
+
+                                    switch (p) {
+                                        case '1000': renderItem(0, 'q'); break;
+                                        case '0100': renderItem(0, 'r16'); renderItem(1, '16'); renderItem(2, 'r8'); if (startIndex <= 1) beamLayer.push(<Notes.FlagSixteenth key="f1" x={s(1)} />); break;
+                                        case '0010': renderItem(0, 'r8'); renderItem(2, '8'); if (startIndex <= 2) beamLayer.push(<Notes.FlagEighth key="f2" x={s(2)} />); break;
+                                        case '0001': renderItem(0, 'r8'); renderItem(2, 'r16'); renderItem(3, '16'); beamLayer.push(<Notes.FlagSixteenth key="f3" x={s(3)} />); break;
+                                        case '1100': renderItem(0, '16'); renderItem(1, '16'); renderItem(2, 'r8'); if (startIndex <= 0) { beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(1)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(0)} x2={s(1)} y={12} />); } break;
+                                        case '1010': renderItem(0, '8'); renderItem(2, '8'); if (startIndex <= 0) beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(2)} />); break;
+                                        case '1001': renderItem(0, 'd8'); renderItem(3, '16'); if (startIndex <= 0) { beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(3)-10} x2={s(3)} y={12} />); } break;
+                                        case '0110': renderItem(0, 'r16'); renderItem(1, '16'); renderItem(2, '8'); if (startIndex <= 1) { beamLayer.push(<Notes.Beam key="b1" x1={s(1)} x2={s(2)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(1)} x2={s(1)+10} y={12} />); } break;
+                                        case '0101': renderItem(0, 'r16'); renderItem(1, '16'); renderItem(2, 'r16'); renderItem(3, '16'); if (startIndex <= 1) { beamLayer.push(<Notes.Beam key="b1" x1={s(1)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(1)} x2={s(3)} y={12} />); } break;
+                                        case '0011': renderItem(0, 'r8'); renderItem(2, '16'); renderItem(3, '16'); if (startIndex <= 2) { beamLayer.push(<Notes.Beam key="b1" x1={s(2)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(2)} x2={s(3)} y={12} />); } break;
+                                        case '1110': renderItem(0, '16'); renderItem(1, '16'); renderItem(2, '8'); if (startIndex <= 0) { beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(2)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(0)} x2={s(1)} y={12} />); } break;
+                                        case '1101': renderItem(0, '16'); renderItem(1, '16'); renderItem(2, 'r16'); renderItem(3, '16'); if (startIndex <= 0) { beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(0)} x2={s(1)} y={12} />); beamLayer.push(<Notes.Beam key="b3" x1={s(3)-10} x2={s(3)} y={12} />); } break;
+                                        case '1011': renderItem(0, '8'); renderItem(2, '16'); renderItem(3, '16'); if (startIndex <= 0) { beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(2)} x2={s(3)} y={12} />); } break;
+                                        case '0111': renderItem(0, 'r16'); renderItem(1, '16'); renderItem(2, '16'); renderItem(3, '16'); if (startIndex <= 1) { beamLayer.push(<Notes.Beam key="b1" x1={s(1)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(1)} x2={s(3)} y={12} />); } break;
+                                        case '1111': renderItem(0, '16'); renderItem(1, '16'); renderItem(2, '16'); renderItem(3, '16'); if (startIndex <= 0) { beamLayer.push(<Notes.Beam key="b1" x1={s(0)} x2={s(3)} />); beamLayer.push(<Notes.Beam key="b2" x1={s(0)} x2={s(3)} y={12} />); } break;
+                                        case '0000': renderItem(0, 'rq'); break;
+                                        default: break;
+                                    }
+                                }
+                                else if (stepsPerBeat === 2) {
+                                    if (p === '11') {
+                                        shapes.push(<g key="0" className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={25} /><Notes.Stem x={30} /></g>);
+                                        shapes.push(<g key="1" className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={75} /><Notes.Stem x={80} /></g>);
+                                        beamLayer.push(<Notes.Beam key="b1" x1={30} x2={80} />);
+                                    } else if (p === '10') {
+                                        shapes.push(<g key="0" className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={25} /><Notes.Stem x={30} /></g>);
+                                    } else if (p === '01') {
+                                        if (startIndex <= 1) {
+                                            shapes.push(<g key="0" className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestEighth x={10} /></g>);
+                                            shapes.push(<g key="1" className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={75} /><Notes.Stem x={80} /></g>);
+                                            beamLayer.push(<Notes.FlagEighth key="f2" x={80} />);
+                                        }
+                                    } else {
+                                        if (startIndex <= 0) shapes.push(<g key="0" className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestQuarter x={35} /></g>);
+                                    }
+                                }
+                                else {
+                                    if (p === '1') {
+                                        shapes.push(<g key="0" className="text-red-500 fill-red-500 stroke-red-500"><Notes.NoteHead cx={25} /><Notes.Stem x={30} /></g>);
+                                    } else {
+                                        shapes.push(<g key="0" className="text-slate-400 fill-slate-400 stroke-slate-400"><Notes.RestQuarter x={35} /></g>);
+                                    }
+                                }
+                            }
+
+                            return (
+                                <div key={beat.id} className="flex-1 relative group">
+                                    <div className="absolute inset-0 flex h-full z-0">
+                                        {Array.from({length: stepsPerBeat}).map((_, subIndex) => {
+                                            const absoluteIndex = beat.startIndex + subIndex;
+                                            const isSubActive = currentStep === absoluteIndex;
+                                            return (
+                                                <div 
+                                                    key={subIndex}
+                                                    onClick={() => toggleStep(absoluteIndex)}
+                                                    className={`flex-1 h-full cursor-pointer transition-colors duration-75 relative group/cell ${isSubActive ? 'bg-blue-50' : 'bg-transparent'}`}
+                                                >
+                                                    <div className="absolute inset-0.5 rounded border-2 border-transparent group-hover/cell:border-slate-200 transition-colors pointer-events-none"></div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                                        <svg width="100%" height="100%" viewBox={`0 0 ${svgWidth} 60`} className="overflow-visible">
+                                            {shapes}
+                                            <g className="text-red-500 fill-red-500 stroke-red-500">
+                                                {beamLayer} 
+                                            </g>
+                                        </svg>
+                                    </div>
+                                    <div className="absolute bottom-4 left-0 right-0 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest pointer-events-none z-20">
+                                        Beat {beat.id + 1}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="flex h-32 items-center ml-4 gap-1 relative z-10">
+                        <div className="flex flex-col justify-center h-16 gap-3 mr-1">
+                            <div className="w-3 h-3 bg-slate-800 rounded-full"></div>
+                            <div className="w-3 h-3 bg-slate-800 rounded-full"></div>
+                        </div>
+                        <div className="h-20 border-r-4 border-slate-800"></div>
+                        <div className="h-20 border-r-[8px] border-slate-800 rounded-sm"></div>
+                    </div>
+                </div>
+            );
+          };
+
+          const renderCountsLine = () => {
+              const { beatsPerMeasure, stepsPerBeat } = getBeatConfig(timeSignature, currentMode);
+              
+              let displayLabels = [];
+              for (let b = 1; b <= beatsPerMeasure; b++) {
+                  if (timeSignature === '6/8') {
+                      if (currentMode.id === 'eighth') {
+                         const start = (b-1)*3 + 1;
+                         displayLabels.push(start.toString(), (start+1).toString(), (start+2).toString());
+                      }
+                      else if (currentMode.id === 'sixteenth') {
+                         const start = (b-1)*3 + 1;
+                         displayLabels.push(start.toString(), '&', (start+1).toString(), '&', (start+2).toString(), '&');
+                      } else {
+                         displayLabels.push(b.toString());
+                      }
+                  } else {
+                     if (stepsPerBeat === 1) displayLabels.push(b.toString());
+                     else if (stepsPerBeat === 2) displayLabels.push(b.toString(), '&');
+                     else if (stepsPerBeat === 4) displayLabels.push(b.toString(), 'e', '&', 'a');
+                  }
+              }
+
+            return (
+              <div className="flex items-center w-full px-4 overflow-hidden select-none">
+                <div className="flex flex-col items-center mr-6 border-r-4 border-slate-800 h-32 justify-center pr-4">
+                   <div className="font-bold text-3xl">{timeSignature.split('/')[0]}</div>
+                   <div className="font-bold text-3xl">{timeSignature.split('/')[1]}</div>
+                </div>
+                <div className="flex-1 flex justify-between relative">
+                  <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-200 -z-10"></div>
+                  {displayLabels.map((label, i) => {
+                     if (i >= pattern.length) return null;
+                     const isActive = pattern[i];
+                     const isCurrent = currentStep === i;
+                     const isBeatStart = i % stepsPerBeat === 0;
+                     const beatIndex = Math.floor(i / stepsPerBeat) + 1;
+
+                    return (
+                      <div key={i} onClick={() => toggleStep(i)} className={`flex-1 flex flex-col items-center justify-center h-32 relative cursor-pointer group ${isBeatStart ? 'border-l border-slate-100' : ''}`}>
+                        <div className={`absolute top-0 w-full h-full bg-blue-50 transition-opacity duration-75 pointer-events-none ${isCurrent ? 'opacity-100' : 'opacity-0'}`}></div>
+                        <div className="absolute inset-2 rounded-lg border-2 border-transparent group-hover:border-slate-200 transition-colors pointer-events-none"></div>
+                        <div className={`z-10 text-3xl md:text-5xl font-black transition-colors duration-150 ${isActive ? 'text-red-500' : 'text-slate-300'}`}>{label}</div>
+                        {isBeatStart && (<div className="absolute bottom-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest pointer-events-none">Beat {beatIndex}</div>)}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex h-32 items-center ml-4 gap-1">
+                    <div className="flex flex-col justify-center h-16 gap-3 mr-1">
+                        <div className="w-3 h-3 bg-slate-800 rounded-full"></div>
+                        <div className="w-3 h-3 bg-slate-800 rounded-full"></div>
+                    </div>
+                    <div className="h-full border-r-4 border-slate-800"></div>
+                    <div className="h-full border-r-[8px] border-slate-800 rounded-sm"></div>
+                </div>
+              </div>
+            );
+          };
+
+          return (
+            <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
+              <div className="max-w-6xl mx-auto bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100">
+                <div className="bg-slate-900 text-white p-6 md:p-8 safe-top">
+                  <div className="flex flex-col justify-between items-center gap-6">
+                    <div className="flex items-center gap-3 w-full xl:w-auto mb-2 xl:mb-0">
+                      <div className="p-3 bg-red-500 rounded-xl shadow-lg shadow-red-900/50">
+                        <Music className="w-8 h-8 text-white" />
+                      </div>
+                      <div>
+                        <h1 className="text-2xl font-bold tracking-tight">Rhythm Randomizer</h1>
+                        <p className="text-slate-400 text-xs">Sight reading trainer</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col lg:flex-row items-center gap-4 bg-slate-800 p-4 rounded-2xl w-full xl:w-auto justify-center shadow-inner border border-slate-700">
+                      <div className="flex items-center gap-3 px-2 lg:border-r border-slate-700 lg:pr-6 w-full lg:w-auto justify-between lg:justify-start">
+                         <span className="text-xs font-bold uppercase text-slate-400 tracking-wider">Tempo</span>
+                         <input type="range" min="40" max="180" value={Number(tempo) || 80} onChange={(e) => handleTempoChange(e.target.value, true)} className="w-24 bg-slate-300 accent-red-500 cursor-pointer rounded-lg h-2" />
+                         <div className="flex items-center bg-slate-900 border border-slate-600 rounded overflow-hidden">
+                            <input type="number" min="40" max="220" value={tempo} onChange={(e) => handleTempoChange(e.target.value, false)} onBlur={handleTempoBlur} className="w-12 bg-transparent text-center font-mono text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none py-1" />
+                            <div className="flex flex-col border-l border-slate-700">
+                                <button onClick={() => handleTempoChange(Number(tempo) + 1, true)} className="px-1 hover:bg-slate-700 text-slate-300"><ChevronUp size={10} /></button>
+                                <button onClick={() => handleTempoChange(Number(tempo) - 1, true)} className="px-1 hover:bg-slate-700 text-slate-300 border-t border-slate-700"><ChevronDown size={10} /></button>
+                            </div>
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-3 px-2 lg:border-r border-slate-700 lg:pr-6 w-full lg:w-auto justify-between lg:justify-start">
+                         <span className="text-xs font-bold uppercase text-slate-400 tracking-wider">Sound</span>
+                         <select value={selectedSound} onChange={(e) => setSelectedSound(e.target.value)} className="bg-slate-900 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:outline-none focus:border-red-500">
+                            {SOUND_OPTIONS.map(opt => (<option key={opt.id} value={opt.id}>{opt.name}</option>))}
+                         </select>
+                      </div>
+                      
+                      <div className="flex items-center gap-3 px-2 lg:border-r border-slate-700 lg:pr-6 w-full lg:w-auto justify-between lg:justify-start">
+                         <span className="text-xs font-bold uppercase text-slate-400 tracking-wider">Time</span>
+                         <select value={timeSignature} onChange={(e) => setTimeSignature(e.target.value)} className="bg-slate-900 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:outline-none focus:border-red-500">
+                            {TIME_SIGNATURES.map(ts => (<option key={ts} value={ts}>{ts}</option>))}
+                         </select>
+                      </div>
+
+                      <div className="flex items-center gap-2 pl-2 w-full lg:w-auto justify-between lg:justify-start">
+                         <button onClick={() => setIsMetronomeOn(!isMetronomeOn)} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${isMetronomeOn ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 ring-1 ring-blue-400' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>
+                            <Activity size={14} />
+                            {isMetronomeOn ? 'Metro ON' : 'Metro OFF'}
+                         </button>
+                         
+                         <div className="flex gap-2">
+                             <select value={metronomeSound} onChange={(e) => setMetronomeSound(e.target.value)} className="bg-slate-900 text-white text-xs rounded-md px-2 py-1 border border-slate-700 focus:outline-none focus:border-blue-500">
+                                 <option value="click">Click</option>
+                                 <option value="drumset">Drum Beat</option>
+                             </select>
+                             <div className="flex bg-slate-900 rounded-md p-0.5 border border-slate-700">
+                                <button onClick={() => setMetronomeSubdivision('quarter')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${metronomeSubdivision === 'quarter' ? 'bg-slate-700 text-white font-bold' : 'text-slate-500 hover:text-slate-300'}`}>1/4</button>
+                                <button onClick={() => setMetronomeSubdivision('eighth')} className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${metronomeSubdivision === 'eighth' ? 'bg-slate-700 text-white font-bold' : 'text-slate-500 hover:text-slate-300'}`}>1/8</button>
+                             </div>
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6 md:p-10">
+                  <div className="flex justify-center mb-8">
+                     <div className="bg-slate-100 p-1.5 rounded-xl inline-flex shadow-inner">
+                        <button onClick={() => setGenerationType('level')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${generationType === 'level' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Sliders size={16} /> Levels</button>
+                        <button onClick={() => setGenerationType('free')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${generationType === 'free' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><GridIcon size={16} /> Free Mode</button>
+                     </div>
+                  </div>
+                  {generationType === 'level' ? (
+                      <div className="mb-10 w-full max-w-2xl mx-auto bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                         <div className="flex justify-between items-center mb-4">
+                           <div className="flex items-center gap-2 relative group">
+                               <span className="text-sm font-bold text-slate-500 uppercase tracking-wider">Difficulty</span>
+                               <InfoIcon size={14} className="text-slate-400 cursor-help" />
+                               <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-48 bg-slate-800 text-white text-xs p-3 rounded-lg shadow-xl z-50 pointer-events-none"><div className="font-bold mb-1">Level {level}</div>{LEVEL_DESCRIPTIONS[level]}</div>
+                           </div>
+                           <span className="text-xl font-mono font-bold text-slate-600 bg-white px-4 py-1 rounded-lg border border-slate-200">Level {level}</span>
+                         </div>
+                         <input type="range" min="1" max="7" value={level} onChange={(e) => setLevel(Number(e.target.value))} className="w-full accent-blue-600 h-2 bg-slate-300 rounded-lg appearance-none cursor-pointer" />
+                         <div className="flex justify-between mt-3 text-xs text-slate-600 font-medium px-1"><span>Beginner</span><span>Intermediate</span><span>Expert</span></div>
+                      </div>
+                  ) : (
+                      <div className="flex justify-center mb-10 bg-slate-100 p-1.5 rounded-xl w-fit mx-auto border border-slate-200">
+                        {Object.values(MODES).map((mode) => (
+                          <button key={mode.id} onClick={() => { setCurrentMode(mode); generateFreePattern(mode); }} className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${currentMode.id === mode.id ? 'bg-white text-slate-900 shadow-sm ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700'}`}>{mode.name}</button>
+                        ))}
+                      </div>
+                  )}
+                  <div className="flex justify-end mb-2 max-w-4xl mx-auto">
+              <div className="bg-slate-100 p-1 rounded-lg flex">
+                  <button onClick={() => setDisplayMode('counts')} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${displayMode === 'counts' ? 'bg-white shadow text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}><Type size={14} /> Counts</button>
+                  <button onClick={() => setDisplayMode('notation')} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${displayMode === 'notation' ? 'bg-white shadow text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}><FileText size={14} /> Notation</button>
+              </div>
+          </div>
+          <div className="bg-white rounded-xl shadow-inner border border-slate-200 mb-12 overflow-x-auto min-h-[200px] flex items-center relative">
+             {isCountingIn && isTransportRunningRef.current ? (
+                 <div className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center">
+                     <div className="flex items-center justify-center w-32 h-32 md:w-40 md:h-40 bg-white/60 text-orange-500 font-black text-7xl md:text-8xl rounded-3xl border-[6px] border-orange-400/60 shadow-lg">
+                         {countInNumber}
+                     </div>
+                 </div>
+             ) : pendingPatternStartRef.current && isTransportRunningRef.current ? (
+                 <div className="absolute top-2 right-2 flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 text-xs font-bold rounded-full animate-pulse border border-blue-200 z-30">
+                     <Activity size={12} />
+                     WAITING FOR DOWNBEAT...
+                 </div>
+             ) : null}
+             
+             {displayMode === 'counts' ? renderCountsLine() : renderNotationLine()}
+          </div>
+          
+          <div className="flex flex-col md:flex-row justify-center gap-4 md:gap-6 items-center">
+                    
+                    <button 
+                      onClick={handleGenerate} 
+                      className="flex items-center justify-center gap-2 px-6 py-5 bg-slate-100 text-slate-700 font-bold rounded-2xl hover:bg-slate-200 transition-all active:scale-95 border border-slate-200 w-full md:w-auto"
+                    >
+                      <RotateCcw size={22} /> New Pattern
+                    </button>
+
+                    <button 
+                      onClick={() => setIsPatternOn(!isPatternOn)} 
+                      className={`flex-1 md:flex-none flex items-center justify-center gap-3 px-10 py-5 font-bold rounded-2xl transition-all shadow-xl active:scale-95 text-lg ${isPatternOn ? 'bg-slate-800 text-red-400 ring-4 ring-slate-100' : 'bg-red-500 text-white hover:bg-red-600 shadow-red-200 hover:shadow-red-300'}`}
+                    >
+                      {isPatternOn ? (<><Square size={24} fill="currentColor" stroke="none" /> Stop</>) : (<><Play size={24} fill="currentColor" stroke="none" /> Listen</>)}
+                    </button>
+
+                    {/* Challenge Mode Button */}
+                    <button 
+                      onClick={toggleChallengeMode}
+                      className={`flex items-center justify-center gap-2 px-6 py-5 font-bold rounded-2xl transition-all shadow-xl active:scale-95 text-lg ${isChallengeModeOn ? 'bg-orange-500 text-white shadow-orange-200 ring-4 ring-orange-100' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'} w-full md:w-auto`}
+                    >
+                      <Flame size={22} className={isChallengeModeOn ? "text-white" : "text-orange-500"} />
+                      Challenge
+                    </button>
+                    
+                  </div>
+                  
+                  <div className="text-center mt-8 text-slate-400 text-sm flex flex-col md:flex-row justify-center gap-2 md:gap-4">
+                     <span>💡 Click numbers or notes to edit.</span>
+                     <span className="hidden md:inline">•</span>
+                     <span>Turn "Challenge" ON to auto-generate a new pattern every 2 measures.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<RhythmTrainer />);
+    </script>
+</body>
+</html>
